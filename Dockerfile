@@ -2,16 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copy service-specific code
-COPY ./app ./app
+COPY member-service/app ./app
+COPY shared ./shared
+COPY member-service/requirements.txt .
 
-#Copy the shared directory
-COPY ../shared ./shared
-
-COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-#Set Python path to include both app/ and shared/
 ENV PYTHONPATH="/app:/app/shared:$PYTHONPATH"
 
 EXPOSE 8000
