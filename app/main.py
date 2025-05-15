@@ -1,32 +1,17 @@
-from fastapi import FastAPI, HTTPException, Depends
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy import select, update, desc
-from sqlalchemy.orm import declarative_base, mapped_column
-from sqlalchemy import Integer, String, Boolean
+from fastapi import FastAPI, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, update, desc, Integer, String, Boolean
+from sqlalchemy.orm import mapped_column
 from pydantic import BaseModel, EmailStr
 import asyncio
 from sqlalchemy.exc import OperationalError
-import os
 
-# Environment variables
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_NAME = os.getenv("DB_NAME", "member_db")
-DB_USER = os.getenv("DB_USER", "member_user")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "secure_pw")
-DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:5432/{DB_NAME}"
-
-# SQLAlchemy setup
-Base = declarative_base()
-engine = create_async_engine(DATABASE_URL, echo=False)
-AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+# Shared DB module (monorepo)
+from shared.db.connection import get_session, engine
+from shared.db.base import Base
 
 # FastAPI app
 app = FastAPI(title="Member Service")
-
-# Database Dependency
-async def get_session() -> AsyncSession:
-    async with AsyncSessionLocal() as session:
-        yield session
 
 # DB Model
 class MemberDB(Base):
@@ -43,7 +28,7 @@ class MemberDB(Base):
     email = mapped_column(String, unique=True, nullable=False)
     deleted = mapped_column(Boolean, default=False)
 
-# Request Model
+# Pydantic Request Model
 class MemberCreate(BaseModel):
     first_name: str
     last_name: str
@@ -54,7 +39,7 @@ class MemberCreate(BaseModel):
     title: str | None = None
     email: EmailStr
 
-# Response Model
+# Pydantic Response Model
 class MemberOut(BaseModel):
     id: int
     first_name: str
@@ -67,10 +52,9 @@ class MemberOut(BaseModel):
     email: EmailStr
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # for Pydantic v2
 
-# Startup DB table creation
-# Routes
+# DB startup with retries
 @app.on_event("startup")
 async def startup():
     retries = 10
@@ -78,15 +62,15 @@ async def startup():
         try:
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-            print("✅ Database connected and initialized.")
+            print("Database connected and initialized.")
             break
         except OperationalError as e:
             print(f"⏳ DB not ready (attempt {attempt + 1}/{retries}), retrying...")
             await asyncio.sleep(2)
     else:
-        raise RuntimeError("❌ Database failed to connect after multiple retries.")
+        raise RuntimeError("Database failed to connect after multiple retries.")
 
-# Routes
+# API endpoints
 @app.post("/members", response_model=MemberOut)
 async def create_member(payload: MemberCreate, session: AsyncSession = Depends(get_session)):
     new_member = MemberDB(**payload.dict())
