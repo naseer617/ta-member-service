@@ -47,3 +47,23 @@ async def soft_delete_members(session: AsyncSession = Depends(get_session)):
     except Exception as e:
         await session.rollback()
         raise HTTPException(status_code=500, detail="Failed to delete members")
+
+@router.delete("/members/{member_id}")
+async def soft_delete_member(member_id: int, session: AsyncSession = Depends(get_session)):
+    try:
+        result = await session.execute(
+            update(MemberDB)
+            .values(deleted=True)
+            .where(MemberDB.id == member_id, MemberDB.deleted == False)
+            .returning(MemberDB.id)
+        )
+        deleted_id = result.scalar_one_or_none()
+        if not deleted_id:
+            raise HTTPException(status_code=404, detail="Member not found")
+        await session.commit()
+        return {"message": f"Member {member_id} soft deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete member")

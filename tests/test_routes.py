@@ -445,3 +445,96 @@ async def test_soft_delete_members_success(async_client, app):
         mock_session.commit.assert_awaited_once()
     finally:
         app.dependency_overrides.clear()
+
+@pytest.mark.asyncio
+async def test_soft_delete_single_member(async_client):
+    # Create a member first
+    response = await async_client.post("/members", json={
+        "first_name": "Test",
+        "last_name": "User",
+        "login": "testuser",
+        "email": "test@example.com"
+    })
+    assert response.status_code == 200
+    member_id = response.json()["id"]
+
+    # Delete the member
+    response = await async_client.delete(f"/members/{member_id}")
+    assert response.status_code == 200
+    assert response.json()["message"] == f"Member {member_id} soft deleted"
+
+    # Verify member is not in get response
+    response = await async_client.get("/members")
+    assert response.status_code == 200
+    members = response.json()
+    assert not any(m["id"] == member_id for m in members)
+
+@pytest.mark.asyncio
+async def test_soft_delete_single_member_not_found(async_client):
+    # Try to delete non-existent member
+    response = await async_client.delete("/members/99999")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Member not found"
+
+@pytest.mark.asyncio
+async def test_soft_delete_single_member_database_error(async_client, app):
+    # Create a mock session
+    mock_session = AsyncMock(spec=AsyncSession)
+    mock_session.execute = AsyncMock(side_effect=SQLAlchemyError("Database error"))
+    mock_session.rollback = AsyncMock()
+
+    async def get_mock_session():
+        yield mock_session
+
+    app.dependency_overrides[get_session] = get_mock_session
+
+    try:
+        response = await async_client.delete("/members/1")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to delete member"
+        mock_session.rollback.assert_awaited_once()
+    finally:
+        app.dependency_overrides.clear()
+
+@pytest.mark.asyncio
+async def test_soft_delete_single_member_already_deleted(async_client):
+    # Create a member first
+    response = await async_client.post("/members", json={
+        "first_name": "Test",
+        "last_name": "User",
+        "login": "testuser",
+        "email": "test@example.com"
+    })
+    assert response.status_code == 200
+    member_id = response.json()["id"]
+
+    # Delete the member first time
+    response = await async_client.delete(f"/members/{member_id}")
+    assert response.status_code == 200
+
+    # Try to delete the same member again
+    response = await async_client.delete(f"/members/{member_id}")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Member not found"
+
+@pytest.mark.asyncio
+async def test_soft_delete_single_member_generic_error(async_client, app):
+    # Create a mock session
+    mock_session = AsyncMock(spec=AsyncSession)
+
+    # Test generic exception (not SQLAlchemyError)
+    mock_session.execute = AsyncMock(side_effect=Exception("Some other error"))
+    mock_session.rollback = AsyncMock()
+
+    async def get_mock_session():
+        yield mock_session
+
+    app.dependency_overrides[get_session] = get_mock_session
+
+    try:
+        response = await async_client.delete("/members/1")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to delete member"
+        mock_session.rollback.assert_awaited_once()
+    finally:
+        app.dependency_overrides.clear()
