@@ -5,6 +5,7 @@ from unittest.mock import patch, AsyncMock, MagicMock
 from sqlalchemy.ext.asyncio import AsyncSession
 from shared.db.connection import get_session
 from app.models import MemberDB
+from datetime import datetime, timezone
 
 # Helper class to track async function calls
 class AsyncFunctionTracker:
@@ -22,25 +23,43 @@ class AsyncFunctionTracker:
 async def test_create_and_get_member(async_client):
     # Create
     response = await async_client.post("/members", json={
-        "first_name": "Test",
-        "last_name": "User",
-        "login": "testuser",
-        "avatar_url": None,
-        "followers": 10,
-        "following": 5,
-        "title": "Dev",
-        "email": "test@example.com"
+        "first_name": "John",
+        "last_name": "Doe",
+        "login": "johndoe",
+        "email": "john@example.com",
+        "followers": 0,
+        "following": 0
     })
     assert response.status_code == 200
     data = response.json()
-    assert data["login"] == "testuser"
+    assert data["first_name"] == "John"
+    assert data["last_name"] == "Doe"
+    assert data["login"] == "johndoe"
+    assert data["email"] == "john@example.com"
+    assert data["followers"] == 0
+    assert data["following"] == 0
+    assert "id" in data
+    assert "created_at" in data
+    assert "updated_at" in data
+    assert isinstance(datetime.fromisoformat(data["created_at"].replace('Z', '+00:00')), datetime)
+    assert isinstance(datetime.fromisoformat(data["updated_at"].replace('Z', '+00:00')), datetime)
 
     # Get
     response = await async_client.get("/members")
     assert response.status_code == 200
     members = response.json()
     assert isinstance(members, list)
-    assert any(m["login"] == "testuser" for m in members)
+    member = next(m for m in members if m["login"] == "johndoe")
+    assert member["first_name"] == "John"
+    assert member["last_name"] == "Doe"
+    assert member["email"] == "john@example.com"
+    assert member["followers"] == 0
+    assert member["following"] == 0
+    assert "id" in member
+    assert "created_at" in member
+    assert "updated_at" in member
+    assert isinstance(datetime.fromisoformat(member["created_at"].replace('Z', '+00:00')), datetime)
+    assert isinstance(datetime.fromisoformat(member["updated_at"].replace('Z', '+00:00')), datetime)
 
 @pytest.mark.asyncio
 async def test_create_duplicate_member(async_client):
@@ -237,12 +256,19 @@ async def test_get_members_database_error(async_client, app):
 @pytest.mark.asyncio
 async def test_soft_delete_members(async_client):
     # Create a member first
-    await async_client.post("/members", json={
+    response = await async_client.post("/members", json={
         "first_name": "Test",
         "last_name": "User",
         "login": "testuser",
         "email": "test@example.com"
     })
+    assert response.status_code == 200
+    data = response.json()
+    assert "id" in data
+    assert "created_at" in data
+    assert "updated_at" in data
+    assert isinstance(datetime.fromisoformat(data["created_at"].replace('Z', '+00:00')), datetime)
+    assert isinstance(datetime.fromisoformat(data["updated_at"].replace('Z', '+00:00')), datetime)
 
     # Soft delete all members
     response = await async_client.delete("/members")
@@ -361,6 +387,9 @@ async def test_create_member_success(async_client, app):
     mock_session.add = MagicMock()
     mock_session.commit = AsyncMock()
 
+    # Create timestamps for the mock
+    now = datetime.now(timezone.utc)
+
     # Create a member object that will be returned
     member = MemberDB(
         id=1,
@@ -372,12 +401,15 @@ async def test_create_member_success(async_client, app):
         followers=0,
         following=0,
         title=None,
-        deleted=False
+        created_at=now,
+        updated_at=now
     )
 
-    # Mock refresh to set the member object
+    # Mock refresh to set the member object with timestamps
     async def mock_refresh(member_obj):
         member_obj.id = 1
+        member_obj.created_at = now
+        member_obj.updated_at = now
     mock_session.refresh = AsyncMock(side_effect=mock_refresh)
 
     async def get_mock_session():
@@ -396,6 +428,10 @@ async def test_create_member_success(async_client, app):
         data = response.json()
         assert data["id"] == 1
         assert data["login"] == "testuser"
+        assert "created_at" in data
+        assert "updated_at" in data
+        assert isinstance(datetime.fromisoformat(data["created_at"].replace('Z', '+00:00')), datetime)
+        assert isinstance(datetime.fromisoformat(data["updated_at"].replace('Z', '+00:00')), datetime)
         mock_session.add.assert_called_once()
         mock_session.commit.assert_awaited_once()
         mock_session.refresh.assert_awaited_once()
@@ -456,7 +492,13 @@ async def test_soft_delete_single_member(async_client):
         "email": "test@example.com"
     })
     assert response.status_code == 200
-    member_id = response.json()["id"]
+    data = response.json()
+    assert "id" in data
+    assert "created_at" in data
+    assert "updated_at" in data
+    assert isinstance(datetime.fromisoformat(data["created_at"].replace('Z', '+00:00')), datetime)
+    assert isinstance(datetime.fromisoformat(data["updated_at"].replace('Z', '+00:00')), datetime)
+    member_id = data["id"]
 
     # Delete the member
     response = await async_client.delete(f"/members/{member_id}")
@@ -506,7 +548,13 @@ async def test_soft_delete_single_member_already_deleted(async_client):
         "email": "test@example.com"
     })
     assert response.status_code == 200
-    member_id = response.json()["id"]
+    data = response.json()
+    assert "id" in data
+    assert "created_at" in data
+    assert "updated_at" in data
+    assert isinstance(datetime.fromisoformat(data["created_at"].replace('Z', '+00:00')), datetime)
+    assert isinstance(datetime.fromisoformat(data["updated_at"].replace('Z', '+00:00')), datetime)
+    member_id = data["id"]
 
     # Delete the member first time
     response = await async_client.delete(f"/members/{member_id}")
