@@ -3,14 +3,13 @@ from shared.db.connection import engine
 from shared.db.base import Base
 from sqlalchemy.exc import OperationalError
 import asyncio
+from contextlib import asynccontextmanager
 
 from .routes import router as member_router
 
-app = FastAPI(title="Member Service")
-app.include_router(member_router)
-
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
     retries = 10
     for attempt in range(retries):
         try:
@@ -23,3 +22,11 @@ async def startup():
             await asyncio.sleep(2)
     else:
         raise RuntimeError("Database failed to connect after multiple retries.")
+
+    yield
+
+    # Shutdown
+    # Add any cleanup code here if needed
+
+app = FastAPI(title="Member Service", lifespan=lifespan)
+app.include_router(member_router)
