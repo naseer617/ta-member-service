@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 
 class MemberCreate(BaseModel):
     first_name: str
@@ -11,6 +11,8 @@ class MemberCreate(BaseModel):
     email: EmailStr
 
 class MemberOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     first_name: str
     last_name: str
@@ -19,7 +21,4 @@ class MemberOut(BaseModel):
     followers: int
     following: int
     title: str | None
-    email: EmailStr
-
-    class Config:
-        from_attributes = True
+    email: str
